@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from collections import OrderedDict
+import yaml
 
 from kfp.compiler._k8s_helper import convert_k8s_obj_to_json
 from kfp.compiler._op_to_template import _process_obj, _inputs_to_json, _outputs_to_json
@@ -95,20 +96,31 @@ def _op_to_template(op: BaseOp):
 
     elif isinstance(op, dsl.ResourceOp):
         # # no output artifacts
-        # output_artifacts = []
-        #
-        # # workflow template
-        # processed_op.resource["manifest"] = yaml.dump(
-        #     convert_k8s_obj_to_json(processed_op.k8s_resource),
-        #     default_flow_style=False
-        # )
-        # template = {
-        #     'name': processed_op.name,
-        #     'resource': convert_k8s_obj_to_json(
-        #         processed_op.resource
-        #     )
-        # }
-        raise NotImplementedError("dsl.ResourceOp is not yet implemented")
+        output_artifacts = []
+        
+        # workflow template
+        processed_op.resource["manifest"] = yaml.dump(
+            convert_k8s_obj_to_json(processed_op.k8s_resource),
+            default_flow_style=False
+        )
+
+        container = convert_k8s_obj_to_json(
+            processed_op.resource
+        )
+
+        step = {'name': processed_op.name}
+        step.update(container)
+
+        template = {
+            'apiVersion': tekton_api_version,
+            'kind': 'Task',
+            'metadata': {'name': processed_op.name},
+            'spec': {
+                'steps': [step]
+            }
+        }
+        # raise NotImplementedError("dsl.ResourceOp is not yet implemented")
+        pass
 
     # initContainers
     if processed_op.init_containers:
@@ -133,20 +145,28 @@ def _op_to_template(op: BaseOp):
     outputs_dict = _outputs_to_json(op, processed_op.outputs, param_outputs, output_artifacts)
     if outputs_dict:
         template['spec']['results'] = []
-        for name, path in processed_op.file_outputs.items():
-            name = name.replace('_', '-')  # replace '_' to '-' since tekton results doesn't support underscore
-            template['spec']['results'].append({
-                'name': name,
-                'description': path
-            })
-            # replace all occurrences of the output file path with the Tekton output parameter expression
-            for s in template['spec']['steps']:
-                if 'command' in s:
-                    s['command'] = [c.replace(path, '$(results.%s.path)' % name)
-                                    for c in s['command']]
-                if 'args' in s:
-                    s['args'] = [a.replace(path, '$(results.%s.path)' % name)
-                                 for a in s['args']]
+        if isinstance(op, dsl.ContainerOp):
+            for name, path in processed_op.file_outputs.items():
+                name = name.replace('_', '-')  # replace '_' to '-' since tekton results doesn't support underscore
+                template['spec']['results'].append({
+                    'name': name,
+                    'description': path
+                })
+                # replace all occurrences of the output file path with the Tekton output parameter expression
+                for s in template['spec']['steps']:
+                    if 'command' in s:
+                        s['command'] = [c.replace(path, '$(results.%s.path)' % name)
+                                        for c in s['command']]
+                    if 'args' in s:
+                        s['args'] = [a.replace(path, '$(results.%s.path)' % name)
+                                    for a in s['args']]
+        elif isinstance(op, dsl.ResourceOp):
+            for parameter in outputs_dict.get('parameters', []):
+                name = parameter['name'].replace('_', '-')  # replace '_' to '-' since tekton results doesn't support underscore
+                template['spec']['results'].append({
+                    'name': name,
+                    'description': parameter['valueFrom']['jsonPath']
+                })
 
     # **********************************************************
     #  NOTE: the following features are still under development
