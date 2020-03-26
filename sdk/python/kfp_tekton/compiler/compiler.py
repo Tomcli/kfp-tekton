@@ -97,7 +97,17 @@ class TektonCompiler(Compiler) :
             'name': p['name'],
             'value': p.get('default', '')
           } for p in t['spec'].get('params', [])
-        ]
+        ],
+        'resources': {
+            'inputs': [{
+              'name': s['name'],
+              'resource': s['name']
+            } for s in t['spec']['resources'].get('inputs', []) if t['spec'].get('resources')],
+            'outputs': [{
+              'name': s['name'],
+              'resource': s['name']
+            } for s in t['spec']['resources'].get('outputs', []) if t['spec'].get('resources')]
+        }
       }
       for t in tasks
     ]
@@ -134,6 +144,22 @@ class TektonCompiler(Compiler) :
       if op.timeout:
         task['timeout'] = '%ds' % op.timeout
 
+    # Add resources
+    resources = []
+    resource_tracker = []
+    for task in task_refs:
+      for resource in task['resources']['inputs']:
+        if resource['name'] not in resource_tracker:
+          resources.append({'name': resource['name'], 'type': 'storage'})
+          resource_tracker.append(resource['name'])
+      for resource in task['resources']['outputs']:
+        if resource['name'] not in resource_tracker:
+          resources.append({'name': resource['name'], 'type': 'storage'})
+          resource_tracker.append(resource['name'])
+
+    # Generate PipelineSource
+    pipelineSource = []
+
     # generate the Tekton Pipeline document
     pipeline = {
       'apiVersion': tekton_api_version,
@@ -143,12 +169,13 @@ class TektonCompiler(Compiler) :
       },
       'spec': {
         'params': params,
-        'tasks': task_refs
+        'tasks': task_refs,
+        'resources': resources
       }
     }
 
     # append Task and Pipeline documents
-    workflow = tasks + [pipeline]
+    workflow = tasks + pipelineSource + [pipeline]
 
     return workflow  # Tekton change, from return type Dict[Text, Any] to List[Dict[Text, Any]]
 

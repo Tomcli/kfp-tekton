@@ -1,0 +1,52 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: foo
+spec:
+  params:
+  - name: bucket
+  - name: namespace
+  - name: tag
+  resources:
+    outputs:
+    - name: out_art
+      type: storage
+  steps:
+  - image: busybox:$(inputs.params.tag)
+    name: foo
+---
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  annotations:
+    pipelines.kubeflow.org/pipeline_spec: '{"description": "hello world", "inputs":
+      [{"name": "tag", "type": "String"}, {"default": "kubeflow", "name": "namespace",
+      "optional": true, "type": "String"}, {"default": "foobar", "name": "bucket",
+      "optional": true, "type": "String"}], "name": "artifact-location-pipeine"}'
+  name: artifact-location-pipeine
+spec:
+  params:
+  - name: tag
+  - default: kubeflow
+    name: namespace
+  - default: foobar
+    name: bucket
+  resources:
+  - name: out_art
+    type: storage
+  tasks:
+  - name: foo
+    params:
+    - name: bucket
+      value: $(params.bucket)
+    - name: namespace
+      value: $(params.namespace)
+    - name: tag
+      value: $(params.tag)
+    resources:
+      inputs: []
+      outputs:
+      - name: out_art
+        resource: out_art
+    taskRef:
+      name: foo

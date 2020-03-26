@@ -67,13 +67,13 @@ def _op_to_template(op: BaseOp):
         output_artifact_paths.update(sorted(((param.full_name, processed_op.file_outputs[param.name]) for param in processed_op.outputs.values()), key=lambda x: x[0]))
 
         output_artifacts = [
-            #  convert_k8s_obj_to_json(
-            #      ArtifactLocation.create_artifact_for_s3(
-            #          op.artifact_location,
-            #          name=name,
-            #          path=path,
-            #          key='runs/{{workflow.uid}}/{{pod.name}}/' + name + '.tgz'))
-            # for name, path in output_artifact_paths.items()
+             convert_k8s_obj_to_json(
+                 ArtifactLocation.create_artifact_for_s3(
+                     op.artifact_location,
+                     name=name,
+                     path=path,
+                     key='runs/{{workflow.uid}}/{{pod.name}}/' + name + '.tgz'))
+            for name, path in output_artifact_paths.items()
         ]
 
         # workflow template
@@ -131,8 +131,18 @@ def _op_to_template(op: BaseOp):
     elif isinstance(op, dsl.ResourceOp):
         param_outputs = processed_op.attribute_outputs
     outputs_dict = _outputs_to_json(op, processed_op.outputs, param_outputs, output_artifacts)
+    print(outputs_dict)
     if outputs_dict:
-        template['spec']['results'] = []
+        if outputs_dict.get('artifacts', []):
+            template['spec']['resources'] = {}
+            template['spec']['resources']['outputs'] = []
+        for artifact in outputs_dict.get('artifacts', []):
+            template['spec']['resources']['outputs'].append({
+                'name': artifact['name'],
+                'type': 'storage'
+            })
+        if processed_op.file_outputs.items():
+            template['spec']['results'] = []
         for name, path in processed_op.file_outputs.items():
             name = name.replace('_', '-')  # replace '_' to '-' since tekton results doesn't support underscore
             template['spec']['results'].append({
