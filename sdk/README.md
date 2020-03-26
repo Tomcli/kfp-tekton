@@ -12,6 +12,9 @@ Here we update the `Compiler` of the KFP SDK to generate `Tekton` YAML for a bas
 2. [`Conda`](https://docs.conda.io/en/latest/) or Python 
    [virtual environment](https://packaging.python.org/guides/installing-using-pip-and-virtual-environments/): 
    Package, dependency and environment management for Python
+3. [Tekton](https://github.com/tektoncd/pipeline/blob/master/docs/install.md). If you want to enable the artifact inputs or
+   outputs, please also set up the [Artifact Storage](https://github.com/tektoncd/pipeline/blob/master/docs/install.md#configuring-artifact-storage)
+   in the default namespace.
 
 ## Tested Versions
 

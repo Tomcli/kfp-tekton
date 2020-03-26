@@ -10,6 +10,7 @@ spec:
   resources:
     outputs:
     - name: out_art
+      targetPath: /tmp/out_art.txt
       type: storage
   steps:
   - image: busybox:$(inputs.params.tag)
@@ -32,7 +33,7 @@ spec:
   - default: foobar
     name: bucket
   resources:
-  - name: out_art
+  - name: default-storage
     type: storage
   tasks:
   - name: foo
@@ -44,9 +45,8 @@ spec:
     - name: tag
       value: $(params.tag)
     resources:
-      inputs: []
       outputs:
       - name: out_art
-        resource: out_art
+        resource: default-storage
     taskRef:
       name: foo

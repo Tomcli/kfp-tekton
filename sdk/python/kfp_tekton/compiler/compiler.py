@@ -54,7 +54,7 @@ class TektonCompiler(Compiler) :
       op_transformers: A list of functions that are applied to all ContainerOp instances that are being processed.
       op_to_templates_handler: Handler which converts a base op into a list of argo templates.
     """
-    op_to_steps_handler = op_to_templates_handler or (lambda op: [_op_to_template(op)])
+    op_to_steps_handler = op_to_templates_handler or (lambda op: [_op_to_template(op, enable_artifacts=True)])
     root_group = pipeline.groups[0]
 
     # Call the transformation functions before determining the inputs/outputs, otherwise
@@ -101,12 +101,12 @@ class TektonCompiler(Compiler) :
         'resources': {
             'inputs': [{
               'name': s['name'],
-              'resource': s['name']
-            } for s in t['spec']['resources'].get('inputs', []) if t['spec'].get('resources')],
+              'resource': 'default-storage'
+            } for s in t['spec'].get('resources', {}).get('inputs', [])],
             'outputs': [{
               'name': s['name'],
-              'resource': s['name']
-            } for s in t['spec']['resources'].get('outputs', []) if t['spec'].get('resources')]
+              'resource': 'default-storage'
+            } for s in t['spec'].get('resources', {}).get('outputs', [])]
         }
       }
       for t in tasks
@@ -148,17 +148,44 @@ class TektonCompiler(Compiler) :
     resources = []
     resource_tracker = []
     for task in task_refs:
-      for resource in task['resources']['inputs']:
-        if resource['name'] not in resource_tracker:
-          resources.append({'name': resource['name'], 'type': 'storage'})
-          resource_tracker.append(resource['name'])
-      for resource in task['resources']['outputs']:
-        if resource['name'] not in resource_tracker:
-          resources.append({'name': resource['name'], 'type': 'storage'})
-          resource_tracker.append(resource['name'])
+      if task['resources']['inputs']:
+        for resource in task['resources']['inputs']:
+          if resource['resource'] not in resource_tracker:
+            resources.append({'name': resource['resource'], 'type': 'storage'})
+            resource_tracker.append(resource['resource'])
+      else:
+        task['resources'].pop('inputs')
+      if task['resources']['outputs']:
+        for resource in task['resources']['outputs']:
+          if resource['resource'] not in resource_tracker:
+            resources.append({'name': resource['resource'], 'type': 'storage'})
+            resource_tracker.append(resource['resource'])
+      else:
+        task['resources'].pop('outputs')
+      if not task['resources']:
+        task.pop('resources')
 
-    # Generate PipelineSource
-    pipelineSource = []
+    # TODO: Add PipelineSource or sourceTemplate to pipelinerun
+    # default_pipelineSource = {
+    #   'apiVersion': 'tekton.dev/v1alpha1',
+    #   'kind': 'PipelineResource',
+    #   'metadata': {
+    #     'name': 'default-storage'
+    #   },
+    #   'spec': {
+    #     'type': 'storage',
+    #     'params': [
+    #       {'name': 'type', 'value': 'gcs'},
+    #       {'name': 'dir', 'value': 'y'},
+    #       {'name': 'location', 'value': 's3://'}
+    #     ],
+    #     'secrets': [{
+    #       'fieldName': 'BOTO_CONFIG',
+    #       'secretName': 'tekton-storage',
+    #       'secretKey': 'boto_config'
+    #     }]
+    #   }
+    # }
 
     # generate the Tekton Pipeline document
     pipeline = {
@@ -169,13 +196,15 @@ class TektonCompiler(Compiler) :
       },
       'spec': {
         'params': params,
-        'tasks': task_refs,
-        'resources': resources
+        'tasks': task_refs
       }
     }
 
+    if resources:
+      pipeline['spec']['resources'] = resources
+
     # append Task and Pipeline documents
-    workflow = tasks + pipelineSource + [pipeline]
+    workflow = tasks + [pipeline]
 
     return workflow  # Tekton change, from return type Dict[Text, Any] to List[Dict[Text, Any]]
 

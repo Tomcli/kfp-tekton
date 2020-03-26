@@ -52,7 +52,7 @@ def _process_base_ops(op: BaseOp):
     return op
 
 
-def _op_to_template(op: BaseOp):
+def _op_to_template(op: BaseOp, enable_artifacts=False):
     """Generate template given an operator inherited from BaseOp."""
 
     # NOTE in-place update to BaseOp
@@ -60,21 +60,23 @@ def _op_to_template(op: BaseOp):
     processed_op = _process_base_ops(op)
 
     if isinstance(op, dsl.ContainerOp):
-        # default output artifacts
-        output_artifact_paths = OrderedDict(op.output_artifact_paths)
-        # print(op.output_artifact_paths)
-        # This should have been as easy as output_artifact_paths.update(op.file_outputs), but the _outputs_to_json function changes the output names and we must do the same here, so that the names are the same
-        output_artifact_paths.update(sorted(((param.full_name, processed_op.file_outputs[param.name]) for param in processed_op.outputs.values()), key=lambda x: x[0]))
-
-        output_artifacts = [
-             convert_k8s_obj_to_json(
-                 ArtifactLocation.create_artifact_for_s3(
-                     op.artifact_location,
-                     name=name,
-                     path=path,
-                     key='runs/{{workflow.uid}}/{{pod.name}}/' + name + '.tgz'))
-            for name, path in output_artifact_paths.items()
-        ]
+        if enable_artifacts:
+            # default output artifacts
+            output_artifact_paths = OrderedDict(op.output_artifact_paths)
+            # print(op.output_artifact_paths)
+            # This should have been as easy as output_artifact_paths.update(op.file_outputs), but the _outputs_to_json function changes the output names and we must do the same here, so that the names are the same
+            output_artifact_paths.update(sorted(((param.full_name, processed_op.file_outputs[param.name]) for param in processed_op.outputs.values()), key=lambda x: x[0]))
+            output_artifacts = [
+                convert_k8s_obj_to_json(
+                    ArtifactLocation.create_artifact_for_s3(
+                        op.artifact_location,
+                        name=name,
+                        path=path,
+                        key='runs/{{workflow.uid}}/{{pod.name}}/' + name))
+                for name, path in output_artifact_paths.items()
+            ]
+        else:
+            output_artifacts = []
 
         # workflow template
         container = convert_k8s_obj_to_json(
@@ -131,32 +133,34 @@ def _op_to_template(op: BaseOp):
     elif isinstance(op, dsl.ResourceOp):
         param_outputs = processed_op.attribute_outputs
     outputs_dict = _outputs_to_json(op, processed_op.outputs, param_outputs, output_artifacts)
-    print(outputs_dict)
     if outputs_dict:
         if outputs_dict.get('artifacts', []):
+            # TODO: Make s3 endpoint and bucket configurable. Need to update s3 secrets and
+            #       pipelineResource mapping.
             template['spec']['resources'] = {}
             template['spec']['resources']['outputs'] = []
-        for artifact in outputs_dict.get('artifacts', []):
-            template['spec']['resources']['outputs'].append({
-                'name': artifact['name'],
-                'type': 'storage'
-            })
+            for artifact in outputs_dict.get('artifacts', []):
+                template['spec']['resources']['outputs'].append({
+                    'name': artifact['name'],
+                    'type': 'storage',
+                    'targetPath': artifact['path']
+                })
         if processed_op.file_outputs.items():
             template['spec']['results'] = []
-        for name, path in processed_op.file_outputs.items():
-            name = name.replace('_', '-')  # replace '_' to '-' since tekton results doesn't support underscore
-            template['spec']['results'].append({
-                'name': name,
-                'description': path
-            })
-            # replace all occurrences of the output file path with the Tekton output parameter expression
-            for s in template['spec']['steps']:
-                if 'command' in s:
-                    s['command'] = [c.replace(path, '$(results.%s.path)' % name)
-                                    for c in s['command']]
-                if 'args' in s:
-                    s['args'] = [a.replace(path, '$(results.%s.path)' % name)
-                                 for a in s['args']]
+            for name, path in processed_op.file_outputs.items():
+                name = name.replace('_', '-')  # replace '_' to '-' since tekton results doesn't support underscore
+                template['spec']['results'].append({
+                    'name': name,
+                    'description': path
+                })
+                # replace all occurrences of the output file path with the Tekton output parameter expression
+                for s in template['spec']['steps']:
+                    if 'command' in s:
+                        s['command'] = [c.replace(path, '$(results.%s.path)' % name)
+                                        for c in s['command']]
+                    if 'args' in s:
+                        s['args'] = [a.replace(path, '$(results.%s.path)' % name)
+                                    for a in s['args']]
 
     # **********************************************************
     #  NOTE: the following features are still under development
