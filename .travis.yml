@@ -65,6 +65,26 @@ matrix:
       go: 1.15.x
       script:
         - make build-backend
+    - name: "Verify api-server, persistenceagent, metadata-writer, and scheduledworkflow docker build"
+      services: docker
+      env:
+        - DOCKER_REGISTRY=fake_registry
+        - DIFF_DETECTED_ERR_CODE=169
+      before_script:
+        # No diff detected:                   terminate job with success i.e. travis_terminate 0
+        # Script throws unexpected error:     fail job with error code
+        # Diff detected:                      continue/run this job
+        - |
+          ./scripts/check_diff.sh
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -eq 0 ]; then
+            travis_terminate 0
+          elif [ $EXIT_CODE -ne DIFF_DETECTED_ERR_CODE]; then
+            travis_terminate $EXIT_CODE
+          fi
+      script:
+        - make build-backend-images
+
 
 # =================================
 # TODO: merge with config from KFP
